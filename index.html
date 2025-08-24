@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Detective Planning Board</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.279.0/dist/umd/lucide.js"></script>
+  <style>
+    /* Custom styles to enhance Tailwind */
+    .bg-gradient-radial {
+      background: radial-gradient(circle at center, var(--tw-gradient-stops));
+    }
+    .animate-pulse {
+      animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .sepia-\[0.3\] { filter: sepia(0.3); }
+    .contrast-110 { filter: contrast(1.1); }
+    .contrast-105 { filter: contrast(1.05); }
+    .drop-shadow-lg { filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1)); }
+    .shadow-2xl { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    import React, { useState, useEffect, useRef } from 'react';
+    import { X, Plus, Target, FileText, Clock, CheckCircle, Edit3, Trash2 } from 'lucide-react';
+
+    const DetectivePlanningBoard = () => {
+      const [cards, setCards] = useState([]);
+      const [isAddingCard, setIsAddingCard] = useState(false);
+      const [draggedCard, setDraggedCard] = useState(null);
+      const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+      const [newCardData, setNewCardData] = useState({ 
+        title: '', 
+        description: '', 
+        status: 'To Do', 
+        image: '',
+        cardType: 'document' 
+      });
+      const [connections, setConnections] = useState([]);
+      const [selectedPin, setSelectedPin] = useState(null);
+      const [boardTitle, setBoardTitle] = useState('OPERATION BLACKOUT');
+      const [isEditingTitle, setIsEditingTitle] = useState(false);
+      const [organizeMode, setOrganizeMode] = useState(false);
+      const [editingCard, setEditingCard] = useState(null);
+      const boardRef = useRef(null);
+
+      // Load from localStorage on mount
+      useEffect(() => {
+        const savedCards = localStorage.getItem('planningBoardCards');
+        const savedConnections = localStorage.getItem('planningBoardConnections');
+        const savedTitle = localStorage.getItem('planningBoardTitle');
+        if (savedCards) {
+          setCards(JSON.parse(savedCards));
+        }
+        if (savedConnections) {
+          setConnections(JSON.parse(savedConnections));
+        }
+        if (savedTitle) {
+          setBoardTitle(savedTitle);
+        }
+      }, []);
+
+      // Save to localStorage
+      useEffect(() => {
+        localStorage.setItem('planningBoardCards', JSON.stringify(cards));
+      }, [cards]);
+
+      useEffect(() => {
+        localStorage.setItem('planningBoardConnections', JSON.stringify(connections));
+      }, [connections]);
+
+      useEffect(() => {
+        localStorage.setItem('planningBoardTitle', boardTitle);
+      }, [boardTitle]);
+
+      const addCard = (cardData) => {
+        const newCard = {
+          id: Date.now(),
+          title: cardData.title,
+          description: cardData.description,
+          status: cardData.status,
+          image: cardData.image,
+          cardType: cardData.cardType,
+          position: { x: Math.random() * 400 + 150, y: Math.random() * 300 + 150 },
+          rotation: (Math.random() - 0.5) * 15,
+          size: 'medium'
+        };
+        setCards([...cards, newCard]);
+        setIsAddingCard(false);
+        setNewCardData({ title: '', description: '', status: 'To Do', image: '', cardType: 'document' });
+      };
+
+      const updateCard = (cardId, updates) => {
+        setCards(cards.map(card => 
+          card.id === cardId ? { ...card, ...updates } : card
+        ));
+      };
+
+      const deleteCard = (cardId) => {
+        setCards(cards.filter(card => card.id !== cardId));
+        setConnections(connections.filter(conn => conn.from !== cardId && conn.to !== cardId));
+      };
+
+      const updateCardStatus = (cardId, newStatus) => {
+        setCards(cards.map(card => 
+          card.id === cardId ? { ...card, status: newStatus } : card
+        ));
+      };
+
+      const getCardDimensions = (size, cardType) => {
+        const baseSize = cardType === 'photo' ? 'smaller' : size;
+        switch (baseSize) {
+          case 'smaller': return { width: 'w-48', height: 'h-32' };
+          case 'small': return { width: 'w-56', height: 'min-h-40' };
+          case 'medium': return { width: 'w-72', height: 'min-h-48' };
+          case 'large': return { width: 'w-80', height: 'min-h-56' };
+          default: return { width: 'w-72', height: 'min-h-48' };
+        }
+      };
+
+      const cycleCardSize = (cardId) => {
+        const card = cards.find(c => c.id === cardId);
+        const sizes = ['small', 'medium', 'large'];
+        const currentIndex = sizes.indexOf(card.size);
+        const nextSize = sizes[(currentIndex + 1) % sizes.length];
+        updateCard(cardId, { size: nextSize });
+      };
+
+      const handleMouseDown = (e, card) => {
+        if (e.target.closest('button') || e.target.tagName === 'SELECT' || organizeMode) return;
+        
+        const rect = boardRef.current.getBoundingClientRect();
+        setDraggedCard(card.id);
+        setDragOffset({
+          x: e.clientX - rect.left - card.position.x,
+          y: e.clientY - rect.top - card.position.y
+        });
+      };
+
+      const handleMouseMove = (e) => {
+        if (draggedCard) {
+          const rect = boardRef.current.getBoundingClientRect();
+          const newX = e.clientX - rect.left - dragOffset.x;
+          const newY = e.clientY - rect.top - dragOffset.y;
+          
+          setCards(cards.map(card =>
+            card.id === draggedCard
+              ? { ...card, position: { x: Math.max(0, newX), y: Math.max(0, newY) } }
+              : card
+          ));
+        }
+      };
+
+      const handleMouseUp = () => {
+        setDraggedCard(null);
+      };
+
+      const handlePinClick = (cardId, event) => {
+        event.stopPropagation();
+        
+        if (!selectedPin) {
+          setSelectedPin(cardId);
+        } else if (selectedPin === cardId) {
+          setSelectedPin(null);
+        } else {
+          const existingConnection = connections.find(
+            conn => (conn.from === selectedPin && conn.to === cardId) || 
+                    (conn.from === cardId && conn.to === selectedPin)
+          );
+          
+          if (existingConnection) {
+            setConnections(connections.filter(conn => conn.id !== existingConnection.id));
+          } else {
+            const newConnection = {
+              id: Date.now(),
+              from: selectedPin,
+              to: cardId,
+              color: '#ff4444'
+            };
+            setConnections([...connections, newConnection]);
+          }
+          setSelectedPin(null);
+        }
+      };
+
+      const getCardStyle = (card) => {
+        const baseStyle = "absolute select-none transform transition-all duration-300 hover:scale-105";
+        const shadows = "drop-shadow-lg";
+        
+        switch (card.cardType) {
+          case 'photo':
+            return `${baseStyle} ${shadows} filter sepia-[0.3] contrast-110`;
+          case 'blueprint':
+            return `${baseStyle} ${shadows} bg-blue-900 bg-opacity-20`;
+          case 'sticky':
+            return `${baseStyle} ${shadows}`;
+          default:
+            return `${baseStyle} ${shadows} filter contrast-105`;
+        }
+      };
+
+      const getCardBackground = (card) => {
+        switch (card.cardType) {
+          case 'photo':
+            return 'bg-gray-100 border-white border-4';
+          case 'blueprint':
+            return 'bg-blue-50 border-blue-200 border-2';
+          case 'sticky':
+            return 'bg-yellow-200 border-yellow-300 border';
+          default:
+            return 'bg-amber-50 border-amber-200 border-2';
+        }
+      };
+
+      return (
+        <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-gray-900 via-green-900 to-gray-800">
+          {/* Atmospheric lighting overlay */}
+          <div className="absolute inset-0 bg-gradient-radial from-transparent via-green-900/20 to-black/40" />
+          
+          {/* Concrete wall texture */}
+          <div 
+            className="absolute inset-0 opacity-15"
+            style={{
+              backgroundImage: `
+                radial-gradient(circle at 20% 50%, rgba(120,120,120,0.3) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(80,80,80,0.2) 0%, transparent 50%),
+                linear-gradient(90deg, transparent 79px, rgba(255,255,255,0.03) 81px, transparent 82px),
+                linear-gradient(rgba(255,255,255,0.03) 0.5px, transparent 0.5px)
+              `,
+              backgroundSize: '100px 100px, 100px 100px, 80px 80px, 20px 20px'
+            }}
+          />
+
+          {/* Fluorescent light bars */}
+          <div className="absolute top-8 left-1/4 w-64 h-2 bg-gradient-to-r from-transparent via-green-300 to-transparent opacity-80 blur-sm" />
+          <div className="absolute top-8 right-1/4 w-48 h-2 bg-gradient-to-r from-transparent via-amber-200 to-transparent opacity-60 blur-sm" />
+
+          {/* Radar/targeting overlays */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20" style={{ zIndex: 1 }}>
+            <defs>
+              <radialGradient id="radarGradient" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(0,255,0,0.1)" />
+                <stop offset="70%" stopColor="rgba(0,255,0,0.05)" />
+                <stop offset="100%" stopColor="transparent" />
+              </radialGradient>
+            </defs>
+            <circle cx="30%" cy="40%" r="180" fill="url(#radarGradient)" stroke="rgba(0,255,0,0.3)" strokeWidth="1" />
+            <circle cx="70%" cy="60%" r="120" fill="none" stroke="rgba(255,255,0,0.2)" strokeWidth="1" strokeDasharray="5,5" />
+            <circle cx="50%" cy="30%" r="200" fill="none" stroke="rgba(255,0,0,0.15)" strokeWidth="1" />
+          </svg>
+
+          {/* String connections */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 2 }}>
+            {connections.map((connection) => {
+              const fromCard = cards.find(c => c.id === connection.from);
+              const toCard = cards.find(c => c.id === connection.to);
+              
+              if (!fromCard || !toCard) return null;
+              
+              return (
+                <g key={connection.id}>
+                  <line
+                    x1={fromCard.position.x + 150}
+                    y1={fromCard.position.y + 100}
+                    x2={toCard.position.x + 150}
+                    y2={toCard.position.y + 100}
+                    stroke="#ff4444"
+                    strokeWidth="2"
+                    opacity="0.8"
+                    filter="drop-shadow(0 0 3px rgba(255,68,68,0.5))"
+                  />
+                  {/* String attachment points */}
+                  <circle cx={fromCard.position.x + 150} cy={fromCard.position.y + 100} r="3" fill="#cc3333" />
+                  <circle cx={toCard.position.x + 150} cy={toCard.position.y + 100} r="3" fill="#cc3333" />
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Command console header */}
+          <div className="absolute top-6 left-6 right-6 z-20">
+            <div className="flex justify-between items-center">
+              <div className="bg-black bg-opacity-90 border border-green-500 p-4 font-mono">
+                <div className="flex items-center gap-4">
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                  {isEditingTitle ? (
+                    <input
+                      type="text"
+                      value={boardTitle}
+                      onChange={(e) => setBoardTitle(e.target.value)}
+                      onBlur={() => setIsEditingTitle(false)}
+                      onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
+                      className="bg-transparent border-none outline-none text-green-400 font-mono text-lg"
+                      autoFocus
+                    />
+                  ) : (
+                    <span 
+                      onClick={() => setIsEditingTitle(true)}
+                      className="text-green-400 text-lg cursor-pointer hover:text-green-300"
+                    >
+                      {boardTitle}
+                    </span>
+                  )}
+                  <div className="text-green-600 text-sm">
+                    [{cards.length} ACTIVE TARGETS]
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setOrganizeMode(!organizeMode)}
+                  className={`px-4 py-2 font-bold border-2 transition-all ${
+                    organizeMode 
+                      ? 'bg-yellow-600 text-black border-yellow-400' 
+                      : 'bg-gray-800 text-green-400 border-green-500 hover:bg-gray-700'
+                  }`}
+                >
+                  {organizeMode ? 'LOCK POSITIONS' : 'REORGANIZE'}
+                </button>
+                <button
+                  onClick={() => setIsAddingCard(true)}
+                  className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white font-bold border-2 border-red-500"
+                >
+                  <Plus className="w-4 h-4 inline mr-2" />
+                  ADD EVIDENCE
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Main board area */}
+          <div
+            ref={boardRef}
+            className="w-full h-screen relative"
+            style={{ zIndex: 3 }}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+            {/* Grid overlay in organize mode */}
+            {organizeMode && (
+              <div 
+                className="absolute inset-0 pointer-events-none opacity-30"
+                style={{
+                  backgroundImage: `
+                    linear-gradient(rgba(0,255,0,0.3) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,255,0,0.3) 1px, transparent 1px)
+                  `,
+                  backgroundSize: '50px 50px'
+                }}
+              />
+            )}
+
+            {/* Evidence cards */}
+            {cards.map((card) => {
+              const dimensions = getCardDimensions(card.size, card.cardType);
+              return (
+                <div
+                  key={card.id}
+                  className={`${getCardStyle(card)} ${dimensions.width} ${dimensions.height}`}
+                  style={{
+                    left: card.position.x,
+                    top: card.position.y,
+                    transform: `rotate(${card.rotation}deg) ${organizeMode ? 'scale(0.9)' : ''}`,
+                    zIndex: draggedCard === card.id ? 1000 : 10,
+                  }}
+                  onMouseDown={(e) => handleMouseDown(e, card)}
+                >
+                  {/* Pushpin */}
+                  <div 
+                    className={`absolute -top-3 left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full shadow-lg cursor-pointer transition-all duration-200 border-2 ${
+                      selectedPin === card.id 
+                        ? 'bg-red-400 border-red-600 ring-4 ring-red-200 scale-125' 
+                        : 'bg-red-600 border-red-800 hover:scale-110'
+                    }`}
+                    onClick={(e) => handlePinClick(card.id, e)}
+                    title={selectedPin === card.id ? "Click another pin to connect" : "Click to connect"}
+                  />
+                  
+                  {/* Organize mode controls */}
+                  {organizeMode && (
+                    <div className="absolute -top-6 -right-6 flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cycleCardSize(card.id);
+                        }}
+                        className="bg-yellow-500 hover:bg-yellow-400 text-black px-2 py-1 rounded text-xs font-bold shadow-lg"
+                      >
+                        {card.size?.toUpperCase()}
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Card content */}
+                  <div className={`${getCardBackground(card)} p-3 shadow-2xl relative`}>
+                    {/* Card type indicator */}
+                    <div className="absolute -top-1 -left-1 w-6 h-6 bg-black text-white text-xs flex items-center justify-center font-bold">
+                      {card.cardType === 'photo' ? '📷' : 
+                       card.cardType === 'blueprint' ? '📋' : 
+                       card.cardType === 'sticky' ? '📝' : '📄'}
+                    </div>
+
+                    {/* Controls */}
+                    <div className="flex justify-between items-start mb-2">
+                      <div className={`px-2 py-1 rounded text-xs font-bold ${
+                        card.status === 'Done' ? 'bg-green-600 text-white' :
+                        card.status === 'In Progress' ? 'bg-yellow-600 text-black' :
+                        'bg-red-600 text-white'
+                      }`}>
+                        {card.status.replace(' ', '\n').toUpperCase()}
+                      </div>
+                      
+                      <div className="flex gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingCard(card.id);
+                          }}
+                          className="bg-blue-600 hover:bg-blue-500 text-white p-1 rounded shadow"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Delete this evidence?')) deleteCard(card.id);
+                          }}
+                          className="bg-red-600 hover:bg-red-500 text-white p-1 rounded shadow"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Image */}
+                    {card.image && (
+                      <div className="mb-2 relative">
+                        <img 
+                          src={card.image} 
+                          alt="Evidence" 
+                          className="w-full h-24 object-cover border-2 border-gray-300 shadow-inner"
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                        <div className="absolute bottom-1 right-1 bg-black text-white text-xs px-1">
+                          CLASSIFIED
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Content */}
+                    <h3 className="font-bold text-gray-900 mb-1 text-sm uppercase tracking-wide">
+                      {card.title}
+                    </h3>
+                    
+                    <p className="text-xs text-gray-800 mb-2 leading-tight">
+                      {card.description}
+                    </p>
+                    
+                    {/* Status selector */}
+                    <select
+                      value={card.status}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        updateCardStatus(card.id, e.target.value);
+                      }}
+                      className="w-full text-xs bg-black text-green-400 border border-gray-500 px-2 py-1 font-mono"
+                    >
+                      <option value="To Do">🔴 PENDING</option>
+                      <option value="In Progress">🟡 ACTIVE</option>
+                      <option value="Done">🟢 CONFIRMED</option>
+                    </select>
+                  </div>
+                  
+                  {/* Tape/attachment points */}
+                  <div className="absolute -top-1 -right-1 w-6 h-6 bg-gray-400 opacity-70 transform rotate-45" />
+                  <div className="absolute -bottom-1 -left-1 w-6 h-6 bg-gray-400 opacity-70 transform rotate-45" />
+                </div>
+              );
+            })}
+
+            {/* Command console status */}
+            <div className="absolute bottom-6 left-6 bg-black bg-opacity-95 border border-green-500 p-3 font-mono text-xs text-green-400">
+              <div className="flex gap-6 mb-1">
+                <span>🔴 PENDING: {cards.filter(c => c.status === 'To Do').length}</span>
+                <span>🟡 ACTIVE: {cards.filter(c => c.status === 'In Progress').length}</span>
+                <span>🟢 CONFIRMED: {cards.filter(c => c.status === 'Done').length}</span>
+                <span>🔗 CONNECTIONS: {connections.length}</span>
+              </div>
+              <div className="text-yellow-400">
+                STATUS: {selectedPin ? 'PIN SELECTED - CLICK ANOTHER TO CONNECT' : 
+                        organizeMode ? 'REORGANIZE MODE ACTIVE' : 
+                        'OPERATIONAL'}
+              </div>
+            </div>
+          </div>
+
+          {/* Add Evidence Modal */}
+          {isAddingCard && (
+            <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+              <div className="bg-gray-900 border-2 border-green-500 p-6 max-w-lg w-full mx-4">
+                <div className="border-b border-green-500 pb-2 mb-4">
+                  <h2 className="text-green-400 font-mono text-lg font-bold flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    ADD NEW EVIDENCE
+                  </h2>
+                </div>
+                
+                <div className="space-y-4 font-mono text-sm">
+                  <div>
+                    <label className="block text-green-400 font-bold mb-1">SUBJECT:</label>
+                    <input
+                      type="text"
+                      value={newCardData.title}
+                      onChange={(e) => setNewCardData({...newCardData, title: e.target.value})}
+                      className="w-full bg-black text-green-400 border border-green-500 px-3 py-2"
+                      placeholder="Enter target identifier..."
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-green-400 font-bold mb-1">INTELLIGENCE:</label>
+                    <textarea
+                      value={newCardData.description}
+                      onChange={(e) => setNewCardData({...newCardData, description: e.target.value})}
+                      rows="3"
+                      className="w-full bg-black text-green-400 border border-green-500 px-3 py-2 resize-none"
+                      placeholder="Enter detailed intelligence..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-green-400 font-bold mb-1">VISUAL EVIDENCE:</label>
+                    <input
+                      type="url"
+                      value={newCardData.image}
+                      onChange={(e) => setNewCardData({...newCardData, image: e.target.value})}
+                      className="w-full bg-black text-green-400 border border-green-500 px-3 py-2"
+                      placeholder="https://image-url.com/evidence.jpg"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-green-400 font-bold mb-1">TYPE:</label>
+                      <select
+                        value={newCardData.cardType}
+                        onChange={(e) => setNewCardData({...newCardData, cardType: e.target.value})}
+                        className="w-full bg-black text-green-400 border border-green-500 px-3 py-2"
+                      >
+                        <option value="document">DOCUMENT</option>
+                        <option value="photo">PHOTO</option>
+                        <option value="blueprint">BLUEPRINT</option>
+                        <option value="sticky">STICKY NOTE</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-green-400 font-bold mb-1">STATUS:</label>
+                      <select
+                        value={newCardData.status}
+                        onChange={(e) => setNewCardData({...newCardData, status: e.target.value})}
+                        className="w-full bg-black text-green-400 border border-green-500 px-3 py-2"
+                      >
+                        <option value="To Do">PENDING</option>
+                        <option value="In Progress">ACTIVE</option>
+                        <option value="Done">CONFIRMED</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      onClick={() => {
+                        if (newCardData.title.trim() && newCardData.description.trim()) {
+                          addCard(newCardData);
+                        } else {
+                          alert('CRITICAL: Subject and Intelligence fields required!');
+                        }
+                      }}
+                      className="flex-1 bg-green-600 hover:bg-green-500 text-black py-3 px-4 font-bold"
+                    >
+                      DEPLOY
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsAddingCard(false);
+                        setNewCardData({ title: '', description: '', status: 'To Do', image: '', cardType: 'document' });
+                      }}
+                      className="flex-1 bg-red-600 hover:bg-red-500 text-white py-3 px-4 font-bold"
+                    >
+                      ABORT
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Evidence Modal */}
+          {editingCard && (
+            <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+              {(() => {
+                const card = cards.find(c => c.id === editingCard);
+                if (!card) return null;
+                return (
+                  <div className="bg-gray-900 border-2 border-green-500 p-6 max-w-lg w-full mx-4">
+                    <div className="border-b border-green-500 pb-2 mb-4">
+                      <h2 className="text-green-400 font-mono text-lg font-bold flex items-center gap-2">
+                        <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+                        MODIFY EVIDENCE
+                      </h2>
+                    </div>
+                    
+                    <div className="space-y-4 font-mono text-sm">
+                      <div>
+                        <label className="block text-green-400 font-bold mb-1">SUBJECT:</label>
+                        <input
+                          type="text"
+                          value={card.title}
+                          onChange={(e) => updateCard(card.id, { title: e.target.value })}
+                          className="w-full bg-black text-green-400 border border-green-500 px-3 py-2"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-green-400 font-bold mb-1">INTELLIGENCE:</label>
+                        <textarea
+                          value={card.description}
+                          onChange={(e) => updateCard(card.id, { description: e.target.value })}
+                          rows="3"
+                          className="w-full bg-black text-green-400 border border-green-500 px-3 py-2 resize-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-green-400 font-bold mb-1">VISUAL EVIDENCE:</label>
+                        <input
+                          type="url"
+                          value={card.image || ''}
+                          onChange={(e) => updateCard(card.id, { image: e.target.value })}
+                          className="w-full bg-black text-green-400 border border-green-500 px-3 py-2"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-green-400 font-bold mb-1">TYPE:</label>
+                        <select
+                          value={card.cardType || 'document'}
+                          onChange={(e) => updateCard(card.id, { cardType: e.target.value })}
+                          className="w-full bg-black text-green-400 border border-green-500 px-3 py-2"
+                        >
+                          <option value="document">DOCUMENT</option>
+                          <option value="photo">PHOTO</option>
+                          <option value="blueprint">BLUEPRINT</option>
+                          <option value="sticky">STICKY NOTE</option>
+                        </select>
+                      </div>
+                      
+                      <div className="flex gap-3 pt-4">
+                        <button
+                          onClick={() => setEditingCard(null)}
+                          className="flex-1 bg-green-600 hover:bg-green-500 text-black py-3 px-4 font-bold"
+                        >
+                          SAVE CHANGES
+                        </button>
+                        <button
+                          onClick={() => setEditingCard(null)}
+                          className="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-3 px-4 font-bold"
+                        >
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DetectivePlanningBoard />);
+  </script>
+</body>
+</html>
