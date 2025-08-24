@@ -8,6 +8,7 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  <!-- Load Lucide icons globally -->
   <script src="https://unpkg.com/lucide@0.279.0/dist/umd/lucide.js"></script>
   <style>
     /* Custom styles to enhance Tailwind */
@@ -31,8 +32,10 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    import React, { useState, useEffect, useRef } from 'react';
-    import { X, Plus, Target, FileText, Clock, CheckCircle, Edit3, Trash2 } from 'lucide-react';
+    const { useState, useEffect, useRef } = React;
+
+    // Define Lucide icons as global variables
+    const { X, Plus, Target, FileText, Clock, CheckCircle, Edit3, Trash2 } = lucide;
 
     const DetectivePlanningBoard = () => {
       const [cards, setCards] = useState([]);
